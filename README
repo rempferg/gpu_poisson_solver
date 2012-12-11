@@ -1,4 +1,21 @@
-Compile with "nvcc -l cufft gpu_poisson_solver.cu"
+Compile with
+
+    nvcc -l cufft gpu_poisson_solver.cu'
+    
+Output at various stages of the computations can be enabled by defining any 
+combination of the precompiler constants
+
+    OUTPUT
+    OUTPUT_GF
+    OUTPUT_CHARGE
+    OUTPUT_CHARGE_FFT
+    OUTPUT_CHARGE_FFT_GF
+    OUTPUT_POTENTIAL
+    
+The results can be visualized with gnuplot using
+
+    splot "file.dat" w pm3d
+
 
 Known issues:
 - grid is cubic
