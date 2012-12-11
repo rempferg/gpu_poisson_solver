@@ -18,8 +18,14 @@ __global__ void multiplyGreensFunc(cufftComplex* data, cufftReal* greensfunc, in
 }
 
 int main(int argc, char** argv) {
+    /* usage message */
+    if(argc != 2) {
+        fprintf(stderr, "USAGE: %s gridsize\n       %s info\n\nCalculates the electrostatic potential of a hardcoded charge distribution on a 2D grid of size gridsize x gridsize. The grid spacing is fixed as 1.\n", argv[0], argv[0]);
+        return 1;
+    }
+    
     /* cuda info */
-    if(argc == 2) {
+    if(strcmp(argv[1], "info") == 0) {
         cudaDeviceProp deviceProp;
         int devCount = 0;
 
@@ -36,12 +42,6 @@ int main(int argc, char** argv) {
         }
         
         return 0;
-    }
-    
-    /* usage message */
-    if(argc != 3) {
-        fprintf(stderr, "USAGE: %s gridsize k-space-cutoff\n       %s info\n", argv[0], argv[0]);
-        return 1;
     }
     
     int n = atoi(argv[1]);
@@ -325,7 +325,7 @@ int main(int argc, char** argv) {
     cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*(n/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
-    fprintf(stderr, "Output of FFT(charge_density)/(k+L*z)^2, z in Z^2: charge_fft_gf.dat\n");
+    fprintf(stderr, "Output of FFT(charge_density)*greensfkt: charge_fft_gf.dat\n");
     
     if((fp = fopen("charge_fft_gf.dat", "w")) == NULL) {
         fprintf(stderr, "ERROR: Could not open output file\n");
@@ -372,7 +372,7 @@ int main(int argc, char** argv) {
     cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*(n/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
-    fprintf(stderr, "Output of iFFT(FFT(charge_density)/(k+L*z)^2), z in Z^2: charge_fft_gf_ifft.dat\n");
+    fprintf(stderr, "Output of iFFT(FFT(charge_density)*greensftk): charge_fft_gf_ifft.dat\n");
     
     if((fp = fopen("charge_fft_gf_ifft.dat", "w")) == NULL) {
         fprintf(stderr, "ERROR: Could not open output file\n");

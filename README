@@ -1,0 +1,6 @@
+Compile with "nvcc -l cufft gpu_poisson_solver.cu"
+
+Known issues:
+- grid is cubic
+- grid is 2D
+- some grid sized cause a segfault before multiplying with the greensfunction
