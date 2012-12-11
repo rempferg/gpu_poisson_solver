@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <cufft.h>
 
-#define OUTPUT
+//#define OUTPUT
 //#define OUTPUT_GF
 //#define OUTPUT_CHARGE
 //#define OUTPUT_CHARGE_FFT
