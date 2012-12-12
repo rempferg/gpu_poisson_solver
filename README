@@ -23,7 +23,7 @@ Scaling:
     'scaling.pdf'. The plot shows that the effort delicately depends on the grid
     size. The FFTs are most efficient if the side length can be decomposed into
     prime factors 2, 3, 5 and 7 which gives rise to the odd scaling patterns.
-    For example, a run on a 7168^2 grid takes less than 50 ms on a Tesla C2050
+    For example, a run on a 8192^2 grid takes less than 50 ms on a Tesla C2050
     while a run on a 6669^2 grid takes over 420 ms on the same device.
     
 
