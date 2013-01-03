@@ -6,12 +6,12 @@
 //#define OUTPUT_CHARGE
 //#define OUTPUT_CHARGE_FFT
 //#define OUTPUT_CHARGE_FFT_GF
-//#define OUTPUT_POTENTIAL
+#define OUTPUT_POTENTIAL
 
 void displayDeviceProperties(cudaDeviceProp* pDeviceProp);
 
 __global__ void multiplyGreensFunc(cufftComplex* data, cufftReal* greensfunc, int n) {
-    for(int i = blockDim.x*blockIdx.x+threadIdx.x; i < n*(n/2+1); i += gridDim.x*blockDim.x) {
+    for(int i = blockDim.x*blockIdx.x+threadIdx.x; i < n*n*(n/2+1); i += gridDim.x*blockDim.x) {
         data[i].x *= greensfunc[i];
         data[i].y *= greensfunc[i];
     }
@@ -68,21 +68,21 @@ int main(int argc, char** argv) {
     cufftReal* data_real_host;
     cufftReal* greensfunc_host;
     
-    cudaMalloc((void**) &data_dev, sizeof(cufftComplex)*n*(n/2+1));
+    cudaMalloc((void**) &data_dev, sizeof(cufftComplex)*n*n*(n/2+1));
     
     if(cudaGetLastError() != cudaSuccess) {
         fprintf(stderr, "ERROR: Failed to allocate\n");
         return 1;
     }
     
-    cudaMalloc((void**) &greensfunc_dev, sizeof(cufftReal)*n*(n/2+1));
+    cudaMalloc((void**) &greensfunc_dev, sizeof(cufftReal)*n*n*(n/2+1));
     
     if(cudaGetLastError() != cudaSuccess) {
         fprintf(stderr, "ERROR: Failed to allocate\n");
         return 1;
     }
     
-    cudaMallocHost((void**) &data_host, sizeof(cufftComplex)*n*(n/2+1));
+    cudaMallocHost((void**) &data_host, sizeof(cufftComplex)*n*n*(n/2+1));
     
     if(cudaGetLastError() != cudaSuccess) {
         fprintf(stderr, "ERROR: Failed to allocate\n");
@@ -91,7 +91,7 @@ int main(int argc, char** argv) {
     
     data_real_host = (cufftReal*) data_host;
     
-    cudaMallocHost((void**) &greensfunc_host, sizeof(cufftReal)*n*(n/2+1));
+    cudaMallocHost((void**) &greensfunc_host, sizeof(cufftReal)*n*n*(n/2+1));
     
     if(cudaGetLastError() != cudaSuccess) {
         fprintf(stderr, "ERROR: Failed to allocate\n");
@@ -101,12 +101,13 @@ int main(int argc, char** argv) {
     /* greens function */
     fprintf(stderr, "Creating k-space greens function in host memory\n");
     
-    for(int y = 0; y < n; y++)
-        for(int x = 0; x < n/2+1; x++)
-            if(x == 0 && y == 0)
-                greensfunc_host[(n/2+1)*y+x] = 0.0; //setting 0th fourier mode to 0 enforces charge neutrality
-            else
-                greensfunc_host[(n/2+1)*y+x] = -0.5 / (cos(2.0*M_PI*x/(cufftReal)n) + cos(2.0*M_PI*y/(cufftReal)n) - 2.0);
+    for(int z = 0; z < n; z++)
+        for(int y = 0; y < n; y++)
+            for(int x = 0; x < n/2+1; x++)
+                if(x == 0 && y == 0 && z == 0)
+                    greensfunc_host[n*(n/2+1)*z+(n/2+1)*y+x] = 0.0; //setting 0th fourier mode to 0 enforces charge neutrality
+                else
+                    greensfunc_host[n*(n/2+1)*z+(n/2+1)*y+x] = -0.5 / (cos(2.0*M_PI*x/(cufftReal)n) + cos(2.0*M_PI*y/(cufftReal)n) + cos(2.0*M_PI*z/(cufftReal)n) - 3.0);
     
 #if defined(OUTPUT) || defined(OUTPUT_GF)
     fprintf(stderr, "Output of greens function: gf.dat\n");
@@ -116,13 +117,14 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    for(int x = 0; x < n; x++) {            
+    for(int z = 0; z < n; z++) {
         for(int y = 0; y < n; y++)
-            if(x >= n/2+1)
-                fprintf(fp, "%d %d %f\n", x, y, greensfunc_host[(n/2+1)*(n-y)+(n-x)]);
-            else
-                fprintf(fp, "%d %d %f\n", x, y, greensfunc_host[(n/2+1)*y+x]);
-        
+            for(int x = 0; x < n; x++)
+                if(x >= n/2+1)
+                    fprintf(fp, "%d %d %d %f\n", x, y, z, greensfunc_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)]);
+                else
+                    fprintf(fp, "%d %d %d %f\n", x, y, z, greensfunc_host[n*(n/2+1)*z+(n/2+1)*y+x]);
+            
         fprintf(fp, "\n");
     }
 
@@ -131,7 +133,7 @@ int main(int argc, char** argv) {
                 
     fprintf(stderr, "Copying greens function to device\n");
     
-    cudaMemcpy(greensfunc_dev, greensfunc_host, sizeof(cufftReal)*n*(n/2+1), cudaMemcpyHostToDevice);
+    cudaMemcpy(greensfunc_dev, greensfunc_host, sizeof(cufftReal)*n*n*(n/2+1), cudaMemcpyHostToDevice);
     
     if(cudaGetLastError() != cudaSuccess) {
         fprintf(stderr, "ERROR: Failed to copy\n");
@@ -141,7 +143,7 @@ int main(int argc, char** argv) {
     /* charge density */
     fprintf(stderr, "Writing charge density in host memory\n");
     
-    for(int i = 0; i < n*(n/2+1); i++) {
+    for(int i = 0; i < n*n*(n/2+1); i++) {
         data_host[i].x = 0.0;
         data_host[i].y = 0.0;
     }
@@ -191,7 +193,6 @@ int main(int argc, char** argv) {
             else
                 data_real_host[n*y+x] = 0.0;
         }
-    */
     
     for(int x = 0; x < n; x++)
         for(int y = 0; y < n; y++)
@@ -201,10 +202,17 @@ int main(int argc, char** argv) {
                 data_real_host[n*y+x] = -1.0;
             else
                 data_real_host[n*y+x] = 0.0;
+    */
+    
+    for(int z = 0; z < n; z++)
+        for(int y = 0; y < n; y++)
+            for(int x = 0; x < n; x++)
+                if((x-n/2)*(x-n/2) + (y-n/2)*(y-n/2) + (z-n/2)*(z-n/2) <= n*n/(5*5))
+                    data_real_host[n*n*z+n*y+x] = 1.0;
                 
     fprintf(stderr, "Copying charge density to device\n");
     
-    cudaMemcpy(data_dev, data_host, sizeof(cufftComplex)*n*(n/2+1), cudaMemcpyHostToDevice);
+    cudaMemcpy(data_dev, data_host, sizeof(cufftComplex)*n*n*(n/2+1), cudaMemcpyHostToDevice);
     
     if(cudaGetLastError() != cudaSuccess) {
         fprintf(stderr, "ERROR: Failed to copy\n");
@@ -219,9 +227,10 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    for(int x = 0; x < n; x++) {            
+    for(int x = 0; x < n; x++) {
         for(int y = 0; y < n; y++)
-            fprintf(fp, "%d %d %f\n", x, y, data_real_host[y*n+x]);
+            for(int z = 0; z < n; z++)
+                fprintf(fp, "%d %d %d %f\n", x, y, z, data_real_host[n*n*z+y*n+x]);
         
         fprintf(fp, "\n");
     }
@@ -229,10 +238,10 @@ int main(int argc, char** argv) {
     fclose(fp);
 #endif
 
-    /* create 2D FFT plans */
+    /* create 3D FFT plans */
     fprintf(stderr, "Setting up FFT and iFFT plans\n");
         
-    if(cufftPlan2d(&plan_fft, n, n, CUFFT_R2C) != CUFFT_SUCCESS) {
+    if(cufftPlan3d(&plan_fft, n, n, n, CUFFT_R2C) != CUFFT_SUCCESS) {
         fprintf(stderr, "ERROR: Unable to create fft plan\n");
         return 1;
     }
@@ -242,7 +251,7 @@ int main(int argc, char** argv) {
         return 1;
     }
         
-    if(cufftPlan2d(&plan_ifft, n, n, CUFFT_C2R) != CUFFT_SUCCESS) {
+    if(cufftPlan3d(&plan_ifft, n, n, n, CUFFT_C2R) != CUFFT_SUCCESS) {
         fprintf(stderr, "ERROR: Unable to create ifft plan\n");
         return 1;
     }
@@ -277,7 +286,7 @@ int main(int argc, char** argv) {
     /* retrieving result from device */
     fprintf(stderr, "Retrieving result from device\n");
     
-    cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*(n/2+1), cudaMemcpyDeviceToHost);
+    cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*n*(n/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
     fprintf(stderr, "Output of FFT(charge_density): charge_fft.dat\n");
@@ -289,10 +298,11 @@ int main(int argc, char** argv) {
     
     for(int x = 0; x < n; x++) {
         for(int y = 0; y < n; y++)
-            if(x >= n/2+1)
-                fprintf(fp, "%d %d %f %f\n", x, y, data_host[(n/2+1)*(n-y)+(n-x)].x/n, -data_host[(n/2+1)*(n-y)+(n-x)].y/n);
-            else
-                fprintf(fp, "%d %d %f %f\n", x, y, data_host[(n/2+1)*y+x].x/n, data_host[(n/2+1)*y+x].y/n);
+            for(int z = 0; z < z; y++)
+                if(x >= n/2+1)
+                    fprintf(fp, "%d %d %d %f %f\n", x, y, z, data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].x/n, -data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].y/n);
+                else
+                    fprintf(fp, "%d %d %d %f %f\n", x, y, z, data_host[n*(n/2+1)*z+(n/2+1)*y+x].x/n, data_host[n*(n/2+1)*z+(n/2+1)*y+x].y/n);
         
         fprintf(fp, "\n");
     }
@@ -322,7 +332,7 @@ int main(int argc, char** argv) {
     /* retrieving result from device */
     fprintf(stderr, "Retrieving result from device\n");
     
-    cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*(n/2+1), cudaMemcpyDeviceToHost);
+    cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*n*(n/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
     fprintf(stderr, "Output of FFT(charge_density)*greensfkt: charge_fft_gf.dat\n");
@@ -334,10 +344,11 @@ int main(int argc, char** argv) {
     
     for(int x = 0; x < n; x++) {
         for(int y = 0; y < n; y++)
-            if(x >= n/2+1)
-                fprintf(fp, "%d %d %f %f\n", x, y, data_host[(n/2+1)*(n-y)+(n-x)].x/n, -data_host[(n/2+1)*(n-y)+(n-x)].y/n);
-            else
-                fprintf(fp, "%d %d %f %f\n", x, y, data_host[(n/2+1)*y+x].x/n, data_host[(n/2+1)*y+x].y/n);
+            for(int z = 0; z < n; z++)
+                if(x >= n/2+1)
+                    fprintf(fp, "%d %d %d %f %f\n", x, y, z, data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].x/n, -data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].y/n);
+                else
+                    fprintf(fp, "%d %d %d %f %f\n", x, y, z, data_host[n*(n/2+1)*z+(n/2+1)*y+x].x/n, data_host[n*(n/2+1)*z+(n/2+1)*y+x].y/n);
         
         fprintf(fp, "\n");
     }
@@ -369,7 +380,7 @@ int main(int argc, char** argv) {
 #if defined(OUTPUT) || defined(OUTPUT_POTENTIAL)
     /* retrieving result from device */
     fprintf(stderr, "Retrieving result from device\n");
-    cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*(n/2+1), cudaMemcpyDeviceToHost);
+    cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*n*(n/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
     fprintf(stderr, "Output of iFFT(FFT(charge_density)*greensftk): charge_fft_gf_ifft.dat\n");
@@ -381,7 +392,8 @@ int main(int argc, char** argv) {
 
     for(int x = 0; x < n; x++) {
         for(int y = 0; y < n; y++)
-            fprintf(fp, "%d %d %f\n", x, y, data_real_host[n*y+x]/(n*n));
+            for(int z = 0; z < n; z++)
+                fprintf(fp, "%d %d %d %f\n", x, y, z, data_real_host[n*n*z+n*y+x]/(n*n));
         
         fprintf(fp, "\n");
     }
