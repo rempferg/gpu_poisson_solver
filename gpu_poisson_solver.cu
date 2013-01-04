@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <math.h>
 #include <cufft.h>
 
 //#define OUTPUT
@@ -6,7 +7,7 @@
 //#define OUTPUT_CHARGE
 //#define OUTPUT_CHARGE_FFT
 //#define OUTPUT_CHARGE_FFT_GF
-#define OUTPUT_POTENTIAL
+//#define OUTPUT_POTENTIAL
 
 void displayDeviceProperties(cudaDeviceProp* pDeviceProp);
 
@@ -19,8 +20,8 @@ __global__ void multiplyGreensFunc(cufftComplex* data, cufftReal* greensfunc, in
 
 int main(int argc, char** argv) {
     /* usage message */
-    if(argc != 2) {
-        fprintf(stderr, "USAGE: %s gridsize\n       %s info\n\nCalculates the electrostatic potential of a hardcoded charge distribution on a 2D grid of size gridsize x gridsize. The grid spacing is fixed as 1.\n", argv[0], argv[0]);
+    if(argc != 2 && argc != 3) {
+        fprintf(stderr, "USAGE: %s sidelength gridsize\n       %s info\n\nCalculates the electrostatic potential of a hardcoded charge distribution on a 3D grid of size gridsize x gridsize x gridsize and spacing gridsize.\n", argv[0], argv[0]);
         return 1;
     }
     
@@ -45,8 +46,10 @@ int main(int argc, char** argv) {
     }
     
     int n = atoi(argv[1]);
+    float L = atof(argv[2]);
+    float h = L / (float) n;
     
-    fprintf(stderr, "Calculating electrostatic potential on a %dx%d grid\n", n, n);
+    fprintf(stderr, "Calculating electrostatic potential on a %dx%dx%d grid of siede length %f and spacing %f\n", n, n, n, L, h);
     
     /* timing */
     float time = 0.0, time_tmp;
@@ -107,23 +110,25 @@ int main(int argc, char** argv) {
                 if(x == 0 && y == 0 && z == 0)
                     greensfunc_host[n*(n/2+1)*z+(n/2+1)*y+x] = 0.0; //setting 0th fourier mode to 0 enforces charge neutrality
                 else
-                    greensfunc_host[n*(n/2+1)*z+(n/2+1)*y+x] = -0.5 / (cos(2.0*M_PI*x/(cufftReal)n) + cos(2.0*M_PI*y/(cufftReal)n) + cos(2.0*M_PI*z/(cufftReal)n) - 3.0);
+                    greensfunc_host[n*(n/2+1)*z+(n/2+1)*y+x] = -0.5 * h * h / (cos(2.0*M_PI*x/(cufftReal)n) + cos(2.0*M_PI*y/(cufftReal)n) + cos(2.0*M_PI*z/(cufftReal)n) - 3.0);
     
 #if defined(OUTPUT) || defined(OUTPUT_GF)
-    fprintf(stderr, "Output of greens function: gf.dat\n");
+    fprintf(stderr, "Output of greens function: gf.vtk\n");
     
-    if((fp = fopen("gf.dat", "w")) == NULL) {
+    if((fp = fopen("gf.vtk", "w")) == NULL) {
         fprintf(stderr, "ERROR: Could not open file\n");
         return 1;
     }
+    
+    fprintf(fp, "# vtk DataFile Version 2.0\ngreens_function\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS greens_function float 1\nLOOKUP_TABLE default\n", n, n, n, h, h, h, n*n*n);
 
     for(int z = 0; z < n; z++) {
         for(int y = 0; y < n; y++)
             for(int x = 0; x < n; x++)
                 if(x >= n/2+1)
-                    fprintf(fp, "%d %d %d %f\n", x, y, z, greensfunc_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)]);
+                    fprintf(fp, " %f", greensfunc_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)]);
                 else
-                    fprintf(fp, "%d %d %d %f\n", x, y, z, greensfunc_host[n*(n/2+1)*z+(n/2+1)*y+x]);
+                    fprintf(fp, " %f", greensfunc_host[n*(n/2+1)*z+(n/2+1)*y+x]);
             
         fprintf(fp, "\n");
     }
@@ -220,17 +225,19 @@ int main(int argc, char** argv) {
     }
     
 #if defined(OUTPUT) || defined(OUTPUT_CHARGE)
-    fprintf(stderr, "Output of charge density: charge.dat\n");
+    fprintf(stderr, "Output of charge density: charge.vtk\n");
     
-    if((fp = fopen("charge.dat", "w")) == NULL) {
+    if((fp = fopen("charge.vtk", "w")) == NULL) {
         fprintf(stderr, "ERROR: Could not open file\n");
         return 1;
     }
+    
+    fprintf(fp, "# vtk DataFile Version 2.0\ncharge_density\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS charge_density float 1\nLOOKUP_TABLE default\n", n, n, n, h, h, h, n*n*n);
 
-    for(int x = 0; x < n; x++) {
+    for(int z = 0; z < n; z++) {
         for(int y = 0; y < n; y++)
-            for(int z = 0; z < n; z++)
-                fprintf(fp, "%d %d %d %f\n", x, y, z, data_real_host[n*n*z+y*n+x]);
+            for(int x = 0; x < n; x++)
+                fprintf(fp, " %f", data_real_host[n*n*z+y*n+x]);
         
         fprintf(fp, "\n");
     }
@@ -289,20 +296,22 @@ int main(int argc, char** argv) {
     cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*n*(n/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
-    fprintf(stderr, "Output of FFT(charge_density): charge_fft.dat\n");
+    fprintf(stderr, "Output of FFT(charge_density): charge_fft.vtk\n");
     
-    if((fp = fopen("charge_fft.dat", "w")) == NULL) {
+    if((fp = fopen("charge_fft.vtk", "w")) == NULL) {
         fprintf(stderr, "ERROR: Could not open file\n");
         return 1;
     }
     
-    for(int x = 0; x < n; x++) {
+    fprintf(fp, "# vtk DataFile Version 2.0\ncharge_fft\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS charge_fft float 2\nLOOKUP_TABLE default\n", n, n, n, h, h, h, n*n*n);
+    
+    for(int z = 0; z < n; z++) {
         for(int y = 0; y < n; y++)
-            for(int z = 0; z < z; y++)
+            for(int x = 0; x < n; x++)
                 if(x >= n/2+1)
-                    fprintf(fp, "%d %d %d %f %f\n", x, y, z, data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].x/n, -data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].y/n);
+                    fprintf(fp, " %f %f", data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].x/sqrt(n*n*n), -data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].y/sqrt(n*n*n));
                 else
-                    fprintf(fp, "%d %d %d %f %f\n", x, y, z, data_host[n*(n/2+1)*z+(n/2+1)*y+x].x/n, data_host[n*(n/2+1)*z+(n/2+1)*y+x].y/n);
+                    fprintf(fp, " %f %f", data_host[n*(n/2+1)*z+(n/2+1)*y+x].x/sqrt(n*n*n), data_host[n*(n/2+1)*z+(n/2+1)*y+x].y/sqrt(n*n*n));
         
         fprintf(fp, "\n");
     }
@@ -335,20 +344,22 @@ int main(int argc, char** argv) {
     cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*n*(n/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
-    fprintf(stderr, "Output of FFT(charge_density)*greensfkt: charge_fft_gf.dat\n");
+    fprintf(stderr, "Output of FFT(charge_density)*greensfkt: charge_fft_gf.vtk\n");
     
-    if((fp = fopen("charge_fft_gf.dat", "w")) == NULL) {
+    if((fp = fopen("charge_fft_gf.vtk", "w")) == NULL) {
         fprintf(stderr, "ERROR: Could not open output file\n");
         return 1;
     }
     
-    for(int x = 0; x < n; x++) {
+    fprintf(fp, "# vtk DataFile Version 2.0\ncharge_fft_gf\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS charge_fft_gf float 1\nLOOKUP_TABLE default\n", n, n, n, h, h, h, n*n*n);
+    
+    for(int z = 0; z < n; z++) {
         for(int y = 0; y < n; y++)
-            for(int z = 0; z < n; z++)
+            for(int x = 0; x < n; x++)
                 if(x >= n/2+1)
-                    fprintf(fp, "%d %d %d %f %f\n", x, y, z, data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].x/n, -data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].y/n);
+                    fprintf(fp, " %f %f", data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].x/sqrt(n*n*n), -data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].y/sqrt(n*n*n));
                 else
-                    fprintf(fp, "%d %d %d %f %f\n", x, y, z, data_host[n*(n/2+1)*z+(n/2+1)*y+x].x/n, data_host[n*(n/2+1)*z+(n/2+1)*y+x].y/n);
+                    fprintf(fp, " %f %f", data_host[n*(n/2+1)*z+(n/2+1)*y+x].x/sqrt(n*n*n), data_host[n*(n/2+1)*z+(n/2+1)*y+x].y/sqrt(n*n*n));
         
         fprintf(fp, "\n");
     }
@@ -383,17 +394,19 @@ int main(int argc, char** argv) {
     cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*n*(n/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
-    fprintf(stderr, "Output of iFFT(FFT(charge_density)*greensftk): charge_fft_gf_ifft.dat\n");
+    fprintf(stderr, "Output of iFFT(FFT(charge_density)*greensftk): charge_fft_gf_ifft.vtk\n");
     
-    if((fp = fopen("charge_fft_gf_ifft.dat", "w")) == NULL) {
+    if((fp = fopen("charge_fft_gf_ifft.vtk", "w")) == NULL) {
         fprintf(stderr, "ERROR: Could not open output file\n");
         return 1;
     }
+    
+    fprintf(fp, "# vtk DataFile Version 2.0\npotential\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS potential float 1\nLOOKUP_TABLE default\n", n, n, n, h, h, h, n*n*n);
 
-    for(int x = 0; x < n; x++) {
+    for(int z = 0; z < n; z++) {
         for(int y = 0; y < n; y++)
-            for(int z = 0; z < n; z++)
-                fprintf(fp, "%d %d %d %f\n", x, y, z, data_real_host[n*n*z+n*y+x]/(n*n));
+            for(int x = 0; x < n; x++)
+                fprintf(fp, " %f", data_real_host[n*n*z+n*y+x]/(n*n*n));
         
         fprintf(fp, "\n");
     }
