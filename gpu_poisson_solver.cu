@@ -20,7 +20,7 @@ __global__ void multiplyGreensFunc(cufftComplex* data, cufftReal* greensfunc, in
 
 int main(int argc, char** argv) {
     /* usage message */
-    if(argc != 2 && argc != 3) {
+    if(!(argc == 2 && strcmp(argv[1], "info") == 0) && argc != 3) {
         fprintf(stderr, "USAGE: %s sidelength gridsize\n       %s info\n\nCalculates the electrostatic potential of a hardcoded charge distribution on a 3D grid of size gridsize x gridsize x gridsize and spacing gridsize.\n", argv[0], argv[0]);
         return 1;
     }
@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
     float L = atof(argv[2]);
     float h = L / (float) n;
     
-    fprintf(stderr, "Calculating electrostatic potential on a %dx%dx%d grid of siede length %f and spacing %f\n", n, n, n, L, h);
+    fprintf(stderr, "Calculating electrostatic potential on a %dx%dx%d grid of side length %f and spacing %f\n", n, n, n, L, h);
     
     /* timing */
     float time = 0.0, time_tmp;
