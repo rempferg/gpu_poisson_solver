@@ -2,7 +2,7 @@
 #include <math.h>
 #include <cufft.h>
 
-//#define OUTPUT
+#define OUTPUT
 //#define OUTPUT_GF
 //#define OUTPUT_CHARGE
 //#define OUTPUT_CHARGE_FFT
@@ -11,8 +11,8 @@
 
 void displayDeviceProperties(cudaDeviceProp* pDeviceProp);
 
-__global__ void multiplyGreensFunc(cufftComplex* data, cufftReal* greensfunc, int n) {
-    for(int i = blockDim.x*blockIdx.x+threadIdx.x; i < n*n*(n/2+1); i += gridDim.x*blockDim.x) {
+__global__ void multiplyGreensFunc(cufftComplex* data, cufftReal* greensfunc, int N) {
+    for(int i = blockDim.x*blockIdx.x+threadIdx.x; i < N; i += gridDim.x*blockDim.x) {
         data[i].x *= greensfunc[i];
         data[i].y *= greensfunc[i];
     }
@@ -20,8 +20,8 @@ __global__ void multiplyGreensFunc(cufftComplex* data, cufftReal* greensfunc, in
 
 int main(int argc, char** argv) {
     /* usage message */
-    if(!(argc == 2 && strcmp(argv[1], "info") == 0) && argc != 3) {
-        fprintf(stderr, "USAGE: %s sidelength gridsize\n       %s info\n\nCalculates the electrostatic potential of a hardcoded charge distribution on a 3D grid of size gridsize x gridsize x gridsize and spacing gridsize.\n", argv[0], argv[0]);
+    if(!(argc == 2 && strcmp(argv[1], "info") == 0) && argc != 5) {
+        fprintf(stderr, "USAGE: %s Nx Ny Nz h\n       %s info\n\nCalculates the electrostatic potential of a hardcoded charge distribution on a 3D grid of size Nx*Ny*Nz with grid spacing h.\n", argv[0], argv[0]);
         return 1;
     }
     
@@ -45,11 +45,12 @@ int main(int argc, char** argv) {
         return 0;
     }
     
-    int n = atoi(argv[1]);
-    float L = atof(argv[2]);
-    float h = L / (float) n;
+    int Nx = atoi(argv[1]);
+    int Ny = atoi(argv[2]);
+    int Nz = atoi(argv[3]);
+    float h = atof(argv[4]);
     
-    fprintf(stderr, "Calculating electrostatic potential on a %dx%dx%d grid of side length %f and spacing %f\n", n, n, n, L, h);
+    fprintf(stderr, "Calculating electrostatic potential on a %d*%d*%d grid with spacing %f\n", Nx, Ny, Nz, h);
     
     /* timing */
     float time = 0.0, time_tmp;
@@ -71,21 +72,21 @@ int main(int argc, char** argv) {
     cufftReal* data_real_host;
     cufftReal* greensfunc_host;
     
-    cudaMalloc((void**) &data_dev, sizeof(cufftComplex)*n*n*(n/2+1));
+    cudaMalloc((void**) &data_dev, sizeof(cufftComplex)*Nz*Ny*(Nx/2+1));
     
     if(cudaGetLastError() != cudaSuccess) {
         fprintf(stderr, "ERROR: Failed to allocate\n");
         return 1;
     }
     
-    cudaMalloc((void**) &greensfunc_dev, sizeof(cufftReal)*n*n*(n/2+1));
+    cudaMalloc((void**) &greensfunc_dev, sizeof(cufftReal)*Nz*Ny*(Nx/2+1));
     
     if(cudaGetLastError() != cudaSuccess) {
         fprintf(stderr, "ERROR: Failed to allocate\n");
         return 1;
     }
     
-    cudaMallocHost((void**) &data_host, sizeof(cufftComplex)*n*n*(n/2+1));
+    cudaMallocHost((void**) &data_host, sizeof(cufftComplex)*Nz*Ny*(Nx/2+1));
     
     if(cudaGetLastError() != cudaSuccess) {
         fprintf(stderr, "ERROR: Failed to allocate\n");
@@ -94,7 +95,7 @@ int main(int argc, char** argv) {
     
     data_real_host = (cufftReal*) data_host;
     
-    cudaMallocHost((void**) &greensfunc_host, sizeof(cufftReal)*n*n*(n/2+1));
+    cudaMallocHost((void**) &greensfunc_host, sizeof(cufftReal)*Nz*Ny*(Nx/2+1));
     
     if(cudaGetLastError() != cudaSuccess) {
         fprintf(stderr, "ERROR: Failed to allocate\n");
@@ -104,13 +105,13 @@ int main(int argc, char** argv) {
     /* greens function */
     fprintf(stderr, "Creating k-space greens function in host memory\n");
     
-    for(int z = 0; z < n; z++)
-        for(int y = 0; y < n; y++)
-            for(int x = 0; x < n/2+1; x++)
+    for(int z = 0; z < Nz; z++)
+        for(int y = 0; y < Ny; y++)
+            for(int x = 0; x < Nx/2+1; x++)
                 if(x == 0 && y == 0 && z == 0)
-                    greensfunc_host[n*(n/2+1)*z+(n/2+1)*y+x] = 0.0; //setting 0th fourier mode to 0 enforces charge neutrality
+                    greensfunc_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x] = 0.0; //setting 0th fourier mode to 0 enforces charge neutrality
                 else
-                    greensfunc_host[n*(n/2+1)*z+(n/2+1)*y+x] = -0.5 * h * h / (cos(2.0*M_PI*x/(cufftReal)n) + cos(2.0*M_PI*y/(cufftReal)n) + cos(2.0*M_PI*z/(cufftReal)n) - 3.0);
+                    greensfunc_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x] = -0.5 * h * h / (cos(2.0*M_PI*x/(cufftReal)Nx) + cos(2.0*M_PI*y/(cufftReal)Ny) + cos(2.0*M_PI*z/(cufftReal)Nz) - 3.0);
     
 #if defined(OUTPUT) || defined(OUTPUT_GF)
     fprintf(stderr, "Output of greens function: gf.vtk\n");
@@ -120,15 +121,15 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    fprintf(fp, "# vtk DataFile Version 2.0\ngreens_function\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS greens_function float 1\nLOOKUP_TABLE default\n", n, n, n, h, h, h, n*n*n);
+    fprintf(fp, "# vtk DataFile Version 2.0\ngreens_function\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS greens_function float 1\nLOOKUP_TABLE default\n", Nx, Ny, Nz, h, h, h, Nx*Ny*Nz);
 
-    for(int z = 0; z < n; z++) {
-        for(int y = 0; y < n; y++)
-            for(int x = 0; x < n; x++)
-                if(x >= n/2+1)
-                    fprintf(fp, " %f", greensfunc_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)]);
+    for(int z = 0; z < Nz; z++) {
+        for(int y = 0; y < Ny; y++)
+            for(int x = 0; x < Nx; x++)
+                if(x >= Nx/2+1)
+                    fprintf(fp, " %f", greensfunc_host[Ny*(Nx/2+1)*(Nz-z)+(Nx/2+1)*(Ny-y)+(Nx-x)]);
                 else
-                    fprintf(fp, " %f", greensfunc_host[n*(n/2+1)*z+(n/2+1)*y+x]);
+                    fprintf(fp, " %f", greensfunc_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x]);
             
         fprintf(fp, "\n");
     }
@@ -138,7 +139,7 @@ int main(int argc, char** argv) {
                 
     fprintf(stderr, "Copying greens function to device\n");
     
-    cudaMemcpy(greensfunc_dev, greensfunc_host, sizeof(cufftReal)*n*n*(n/2+1), cudaMemcpyHostToDevice);
+    cudaMemcpy(greensfunc_dev, greensfunc_host, sizeof(cufftReal)*Nz*Ny*(Nx/2+1), cudaMemcpyHostToDevice);
     
     if(cudaGetLastError() != cudaSuccess) {
         fprintf(stderr, "ERROR: Failed to copy\n");
@@ -148,7 +149,7 @@ int main(int argc, char** argv) {
     /* charge density */
     fprintf(stderr, "Writing charge density in host memory\n");
     
-    for(int i = 0; i < n*n*(n/2+1); i++) {
+    for(int i = 0; i < Nz*Ny*(Nx/2+1); i++) {
         data_host[i].x = 0.0;
         data_host[i].y = 0.0;
     }
@@ -209,15 +210,15 @@ int main(int argc, char** argv) {
                 data_real_host[n*y+x] = 0.0;
     */
     
-    for(int z = 0; z < n; z++)
-        for(int y = 0; y < n; y++)
-            for(int x = 0; x < n; x++)
-                if((x-n/2)*(x-n/2) + (y-n/2)*(y-n/2) + (z-n/2)*(z-n/2) <= n*n/(5*5))
-                    data_real_host[n*n*z+n*y+x] = 1.0;
+    for(int z = 0; z < Nz; z++)
+        for(int y = 0; y < Ny; y++)
+            for(int x = 0; x < Nx; x++)
+                if((x-Nx/2)*(x-Nx/2) + (y-Ny/2)*(y-Ny/2) + (z-Nz/2)*(z-Nz/2) <= 5*5/(h*h))
+                    data_real_host[Ny*Nx*z+Nx*y+x] = 1.0;
                 
     fprintf(stderr, "Copying charge density to device\n");
     
-    cudaMemcpy(data_dev, data_host, sizeof(cufftComplex)*n*n*(n/2+1), cudaMemcpyHostToDevice);
+    cudaMemcpy(data_dev, data_host, sizeof(cufftComplex)*Nz*Ny*(Nx/2+1), cudaMemcpyHostToDevice);
     
     if(cudaGetLastError() != cudaSuccess) {
         fprintf(stderr, "ERROR: Failed to copy\n");
@@ -232,12 +233,12 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    fprintf(fp, "# vtk DataFile Version 2.0\ncharge_density\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS charge_density float 1\nLOOKUP_TABLE default\n", n, n, n, h, h, h, n*n*n);
+    fprintf(fp, "# vtk DataFile Version 2.0\ncharge_density\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS charge_density float 1\nLOOKUP_TABLE default\n", Nx, Ny, Nz, h, h, h, Nx*Ny*Nz);
 
-    for(int z = 0; z < n; z++) {
-        for(int y = 0; y < n; y++)
-            for(int x = 0; x < n; x++)
-                fprintf(fp, " %f", data_real_host[n*n*z+y*n+x]);
+    for(int z = 0; z < Nz; z++) {
+        for(int y = 0; y < Ny; y++)
+            for(int x = 0; x < Nx; x++)
+                fprintf(fp, " %f", data_real_host[Ny*Nx*z+Ny*y+x]);
         
         fprintf(fp, "\n");
     }
@@ -248,7 +249,7 @@ int main(int argc, char** argv) {
     /* create 3D FFT plans */
     fprintf(stderr, "Setting up FFT and iFFT plans\n");
         
-    if(cufftPlan3d(&plan_fft, n, n, n, CUFFT_R2C) != CUFFT_SUCCESS) {
+    if(cufftPlan3d(&plan_fft, Nx, Ny, Nz, CUFFT_R2C) != CUFFT_SUCCESS) {
         fprintf(stderr, "ERROR: Unable to create fft plan\n");
         return 1;
     }
@@ -258,7 +259,7 @@ int main(int argc, char** argv) {
         return 1;
     }
         
-    if(cufftPlan3d(&plan_ifft, n, n, n, CUFFT_C2R) != CUFFT_SUCCESS) {
+    if(cufftPlan3d(&plan_ifft, Nx, Ny, Nz, CUFFT_C2R) != CUFFT_SUCCESS) {
         fprintf(stderr, "ERROR: Unable to create ifft plan\n");
         return 1;
     }
@@ -293,7 +294,7 @@ int main(int argc, char** argv) {
     /* retrieving result from device */
     fprintf(stderr, "Retrieving result from device\n");
     
-    cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*n*(n/2+1), cudaMemcpyDeviceToHost);
+    cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*Nz*Ny*(Nx/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
     fprintf(stderr, "Output of FFT(charge_density): charge_fft.vtk\n");
@@ -303,15 +304,15 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    fprintf(fp, "# vtk DataFile Version 2.0\ncharge_fft\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS charge_fft float 2\nLOOKUP_TABLE default\n", n, n, n, h, h, h, n*n*n);
+    fprintf(fp, "# vtk DataFile Version 2.0\ncharge_fft\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS charge_fft float 2\nLOOKUP_TABLE default\n", Nx, Ny, Nz, h, h, h, Nx*Ny*Nz);
     
-    for(int z = 0; z < n; z++) {
-        for(int y = 0; y < n; y++)
-            for(int x = 0; x < n; x++)
-                if(x >= n/2+1)
-                    fprintf(fp, " %f %f", data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].x/sqrt(n*n*n), -data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].y/sqrt(n*n*n));
+    for(int z = 0; z < Nz; z++) {
+        for(int y = 0; y < Ny; y++)
+            for(int x = 0; x < Nx; x++)
+                if(x >= Nx/2+1)
+                    fprintf(fp, " %f %f", data_host[Ny*(Nx/2+1)*(Nz-z)+(Nx/2+1)*(Ny-y)+(Nx-x)].x/sqrt(Nx*Ny*Nz), -data_host[Ny*(Nx/2+1)*(Nz-z)+(Nx/2+1)*(Ny-y)+(Nx-x)].y/sqrt(Nx*Ny*Nz));
                 else
-                    fprintf(fp, " %f %f", data_host[n*(n/2+1)*z+(n/2+1)*y+x].x/sqrt(n*n*n), data_host[n*(n/2+1)*z+(n/2+1)*y+x].y/sqrt(n*n*n));
+                    fprintf(fp, " %f %f", data_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x].x/sqrt(Nx*Ny*Nz), data_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x].y/sqrt(Nx*Ny*Nz));
         
         fprintf(fp, "\n");
     }
@@ -324,7 +325,7 @@ int main(int argc, char** argv) {
     
     cudaEventRecord(start, 0);
     
-    multiplyGreensFunc<<<14,32*32>>>(data_dev, greensfunc_dev, n); //18-fold occupation seems to be optimal for the GT520 and 32-fold for the C2050
+    multiplyGreensFunc<<<14,32*32>>>(data_dev, greensfunc_dev, Nz*Ny*(Nx/2+1)); //18-fold occupation seems to be optimal for the GT520 and 32-fold for the C2050
     
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
@@ -341,7 +342,7 @@ int main(int argc, char** argv) {
     /* retrieving result from device */
     fprintf(stderr, "Retrieving result from device\n");
     
-    cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*n*(n/2+1), cudaMemcpyDeviceToHost);
+    cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*Nz*Ny*(Nx/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
     fprintf(stderr, "Output of FFT(charge_density)*greensfkt: charge_fft_gf.vtk\n");
@@ -351,15 +352,15 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    fprintf(fp, "# vtk DataFile Version 2.0\ncharge_fft_gf\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS charge_fft_gf float 1\nLOOKUP_TABLE default\n", n, n, n, h, h, h, n*n*n);
+    fprintf(fp, "# vtk DataFile Version 2.0\ncharge_fft_gf\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS charge_fft_gf float 1\nLOOKUP_TABLE default\n", Nx, Ny, Nz, h, h, h, Nx*Ny*Nz);
     
-    for(int z = 0; z < n; z++) {
-        for(int y = 0; y < n; y++)
-            for(int x = 0; x < n; x++)
-                if(x >= n/2+1)
-                    fprintf(fp, " %f %f", data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].x/sqrt(n*n*n), -data_host[n*(n/2+1)*(n-z)+(n/2+1)*(n-y)+(n-x)].y/sqrt(n*n*n));
+    for(int z = 0; z < Nz; z++) {
+        for(int y = 0; y < Ny; y++)
+            for(int x = 0; x < Nx; x++)
+                if(x >= Nx/2+1)
+                    fprintf(fp, " %f %f", data_host[Ny*(Nx/2+1)*(Nz-z)+(Nx/2+1)*(Ny-y)+(Nx-x)].x/sqrt(Nx*Ny*Nz), -data_host[Ny*(Nx/2+1)*(Nz-z)+(Nx/2+1)*(Ny-y)+(Nx-x)].y/sqrt(Nx*Ny*Nz));
                 else
-                    fprintf(fp, " %f %f", data_host[n*(n/2+1)*z+(n/2+1)*y+x].x/sqrt(n*n*n), data_host[n*(n/2+1)*z+(n/2+1)*y+x].y/sqrt(n*n*n));
+                    fprintf(fp, " %f %f", data_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x].x/sqrt(Nx*Ny*Nz), data_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x].y/sqrt(Nx*Ny*Nz));
         
         fprintf(fp, "\n");
     }
@@ -391,7 +392,7 @@ int main(int argc, char** argv) {
 #if defined(OUTPUT) || defined(OUTPUT_POTENTIAL)
     /* retrieving result from device */
     fprintf(stderr, "Retrieving result from device\n");
-    cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*n*n*(n/2+1), cudaMemcpyDeviceToHost);
+    cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*Nz*Ny*(Nx/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
     fprintf(stderr, "Output of iFFT(FFT(charge_density)*greensftk): charge_fft_gf_ifft.vtk\n");
@@ -401,12 +402,12 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    fprintf(fp, "# vtk DataFile Version 2.0\npotential\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS potential float 1\nLOOKUP_TABLE default\n", n, n, n, h, h, h, n*n*n);
+    fprintf(fp, "# vtk DataFile Version 2.0\npotential\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS potential float 1\nLOOKUP_TABLE default\n", Nx, Ny, Nz, h, h, h, Nx*Ny*Nz);
 
-    for(int z = 0; z < n; z++) {
-        for(int y = 0; y < n; y++)
-            for(int x = 0; x < n; x++)
-                fprintf(fp, " %f", data_real_host[n*n*z+n*y+x]/(n*n*n));
+    for(int z = 0; z < Nz; z++) {
+        for(int y = 0; y < Ny; y++)
+            for(int x = 0; x < Nx; x++)
+                fprintf(fp, " %f", data_real_host[Ny*Nx*z+Nx*y+x]/(Nx*Ny*Nz));
         
         fprintf(fp, "\n");
     }
