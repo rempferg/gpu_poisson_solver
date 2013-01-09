@@ -310,7 +310,7 @@ int main(int argc, char** argv) {
         for(int y = 0; y < Ny; y++)
             for(int x = 0; x < Nx; x++)
                 if(x >= Nx/2+1)
-                    fprintf(fp, " %f %f", data_host[Ny*(Nx/2+1)*(Nz-z)+(Nx/2+1)*(Ny-y)+(Nx-x)].x/sqrt(Nx*Ny*Nz), -data_host[Ny*(Nx/2+1)*(Nz-z)+(Nx/2+1)*(Ny-y)+(Nx-x)].y/sqrt(Nx*Ny*Nz));
+                    fprintf(fp, " %f %f", data_host[Ny*(Nx/2+1)*(Nz-z-1)+(Nx/2+1)*(Ny-y-1)+(Nx-x-1)].x/sqrt(Nx*Ny*Nz), -data_host[Ny*(Nx/2+1)*(Nz-z-1)+(Nx/2+1)*(Ny-y-1)+(Nx-x-1)].y/sqrt(Nx*Ny*Nz));
                 else
                     fprintf(fp, " %f %f", data_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x].x/sqrt(Nx*Ny*Nz), data_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x].y/sqrt(Nx*Ny*Nz));
         
@@ -352,13 +352,13 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    fprintf(fp, "# vtk DataFile Version 2.0\ncharge_fft_gf\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS charge_fft_gf float 1\nLOOKUP_TABLE default\n", Nx, Ny, Nz, h, h, h, Nx*Ny*Nz);
+    fprintf(fp, "# vtk DataFile Version 2.0\ncharge_fft_gf\nASCII\n\nDATASET STRUCTURED_POINTS\nDIMENSIONS %u %u %u\nORIGIN 0 0 0\nSPACING %f %f %f\n\nPOINT_DATA %u\nSCALARS charge_fft_gf float 2\nLOOKUP_TABLE default\n", Nx, Ny, Nz, h, h, h, Nx*Ny*Nz);
     
     for(int z = 0; z < Nz; z++) {
         for(int y = 0; y < Ny; y++)
             for(int x = 0; x < Nx; x++)
                 if(x >= Nx/2+1)
-                    fprintf(fp, " %f %f", data_host[Ny*(Nx/2+1)*(Nz-z)+(Nx/2+1)*(Ny-y)+(Nx-x)].x/sqrt(Nx*Ny*Nz), -data_host[Ny*(Nx/2+1)*(Nz-z)+(Nx/2+1)*(Ny-y)+(Nx-x)].y/sqrt(Nx*Ny*Nz));
+                    fprintf(fp, " %f %f", data_host[Ny*(Nx/2+1)*(Nz-z-1)+(Nx/2+1)*(Ny-y-1)+(Nx-x-1)].x/sqrt(Nx*Ny*Nz), -data_host[Ny*(Nx/2+1)*(Nz-z-1)+(Nx/2+1)*(Ny-y-1)+(Nx-x-1)].y/sqrt(Nx*Ny*Nz));
                 else
                     fprintf(fp, " %f %f", data_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x].x/sqrt(Nx*Ny*Nz), data_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x].y/sqrt(Nx*Ny*Nz));
         
