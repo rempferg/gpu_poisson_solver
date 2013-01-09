@@ -127,7 +127,7 @@ int main(int argc, char** argv) {
         for(int y = 0; y < Ny; y++)
             for(int x = 0; x < Nx; x++)
                 if(x >= Nx/2+1)
-                    fprintf(fp, " %f", greensfunc_host[Ny*(Nx/2+1)*(Nz-z)+(Nx/2+1)*(Ny-y)+(Nx-x)]);
+                    fprintf(fp, " %f", greensfunc_host[Ny*(Nx/2+1)*(Nz-z-1)+(Nx/2+1)*(Ny-y-1)+(Nx-x-1)]);
                 else
                     fprintf(fp, " %f", greensfunc_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x]);
             
