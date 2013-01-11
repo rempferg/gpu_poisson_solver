@@ -149,72 +149,13 @@ int main(int argc, char** argv) {
     /* charge density */
     fprintf(stderr, "Writing charge density in host memory\n");
     
-    for(int i = 0; i < Nz*Ny*(Nx/2+1); i++) {
-        data_host[i].x = 0.0;
-        data_host[i].y = 0.0;
-    }
-    
-    /*
-    for(int x = 0; x < n; x++)
-        for(int y = 0; y < n; y++)
-            data_real_host[n*y+x] = 1.0;
-    
-    for(int x = 0; x < n; x++)
-        for(int y = 0; y < n; y++)
-            if(x==n/3 && y==n/4)
-                data_real_host[n*y+x] = 1.0;
-            else
-                data_real_host[n*y+x] = 0.0;
-    
-    for(int x = 0; x < n; x++)
-        for(int y = 0; y < n; y++) {
-            data_real_host[n*x+y] = sin(2.0*PI/n*(10*x+10*y));
-        }
-            
-    for(int x = 0; x < n; x++)
-        for(int y = 0; y < n; y++)
-            if((x-n/2)*(x-n/2)/10.0 + (y-n/2)*(y-n/2) <= n*n/128.0)
-                data_real_host[n*y+x] = 1.0;
-            else
-                data_real_host[n*y+x] = 0.0;
-    
-    for(int x = 0; x < n; x++)
-        for(int y = 0; y < n; y++)
-            if(x==n/2 && y==n/2)
-                data_real_host[n*y+x] = 1.0;
-            else
-                data_real_host[n*y+x] = 0.0;
-    
-    double d; //those tilted plates work well for a power of two grid
-    double l = n * sqrt(5.0)/2.0;
-    
-    for(int x = 0; x < n; x++)
-        for(int y = 0; y < n; y++) {
-            d = ((double)x + (double)y/2.0) * 2.0/sqrt(5.0);
-            
-            if( (d >= 2*l/5.0 && d < 2*l/5.0+0.5) || (d >= 4*l/5.0 && d < 4*l/5.0+0.5) )
-                data_real_host[n*y+x] = 1.0;
-            else if( (d >= 1*l/5.0 && d < 1*l/5.0+0.5) || (d >= 3*l/5.0 && d < 3*l/5.0+0.3) || (d >= 5*l/5.0 && d < 5*l/5.0+0.3) )
-                data_real_host[n*y+x] = -1.0;
-            else
-                data_real_host[n*y+x] = 0.0;
-        }
-    
-    for(int x = 0; x < n; x++)
-        for(int y = 0; y < n; y++)
-            if(y == n/4)
-                data_real_host[n*y+x] = 1.0;
-            else if(y == 3*n/4)            
-                data_real_host[n*y+x] = -1.0;
-            else
-                data_real_host[n*y+x] = 0.0;
-    */
-    
     for(int z = 0; z < Nz; z++)
         for(int y = 0; y < Ny; y++)
             for(int x = 0; x < Nx; x++)
-                if((x-Nx/2)*(x-Nx/2) + (y-Ny/2)*(y-Ny/2) + (z-Nz/2)*(z-Nz/2) <= 5*5/(h*h))
+                if(y == 0) //center sphere: (x-Nx/2)*(x-Nx/2) + (y-Ny/2)*(y-Ny/2) + (z-Nz/2)*(z-Nz/2) <= 5*5/(h*h) ||| 
                     data_real_host[Ny*Nx*z+Nx*y+x] = 1.0;
+                else
+                    data_real_host[Ny*Nx*z+Nx*y+x] = 0.0;
                 
     fprintf(stderr, "Copying charge density to device\n");
     
@@ -238,7 +179,7 @@ int main(int argc, char** argv) {
     for(int z = 0; z < Nz; z++) {
         for(int y = 0; y < Ny; y++)
             for(int x = 0; x < Nx; x++)
-                fprintf(fp, " %f", data_real_host[Ny*Nx*z+Ny*y+x]);
+                fprintf(fp, " %f", data_real_host[Ny*Nx*z+Nx*y+x]);
         
         fprintf(fp, "\n");
     }
