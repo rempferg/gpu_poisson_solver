@@ -21,7 +21,7 @@ __global__ void multiplyGreensFunc(cufftComplex* data, cufftReal* greensfunc, in
 int main(int argc, char** argv) {
     /* usage message */
     if(!(argc == 2 && strcmp(argv[1], "info") == 0) && argc != 5) {
-        fprintf(stderr, "USAGE: %s Nx Ny Nz h\n       %s info\n\nCalculates the electrostatic potential of a hardcoded charge distribution on a 3D grid of size Nx*Ny*Nz with grid spacing h.\n", argv[0], argv[0]);
+        printf("USAGE: %s Nx Ny Nz h\n       %s info\n\nCalculates the electrostatic potential of a hardcoded charge distribution on a 3D grid of size Nx*Ny*Nz with grid spacing h.\n", argv[0], argv[0]);
         return 1;
     }
     
@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
     int Nz = atoi(argv[3]);
     float h = atof(argv[4]);
     
-    fprintf(stderr, "Calculating electrostatic potential on a %d*%d*%d grid with spacing %f\n", Nx, Ny, Nz, h);
+    printf("Calculating electrostatic potential on a %d*%d*%d grid with spacing %f\n", Nx, Ny, Nz, h);
     
     /* timing */
     float time = 0.0, time_tmp;
@@ -103,18 +103,22 @@ int main(int argc, char** argv) {
     }
     
     /* greens function */
-    fprintf(stderr, "Creating k-space greens function in host memory\n");
+    printf("Creating k-space greens function in host memory\n");
     
+    /* Setting 0th fourier mode to 0.0 enforces charge neutrality (effectively
+       adds homogeneous counter charge). This is necessary, since the equation
+       otherwise has no solution in periodic boundaries (an infinite amount of
+       charge would create an infinite potential). */
     for(int z = 0; z < Nz; z++)
         for(int y = 0; y < Ny; y++)
             for(int x = 0; x < Nx/2+1; x++)
                 if(x == 0 && y == 0 && z == 0)
-                    greensfunc_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x] = 0.0; //setting 0th fourier mode to 0 enforces charge neutrality
+                    greensfunc_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x] = 0.0;
                 else
                     greensfunc_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x] = -0.5 * h * h / (cos(2.0*M_PI*x/(cufftReal)Nx) + cos(2.0*M_PI*y/(cufftReal)Ny) + cos(2.0*M_PI*z/(cufftReal)Nz) - 3.0);
     
 #if defined(OUTPUT) || defined(OUTPUT_GF)
-    fprintf(stderr, "Output of greens function: gf.vtk\n");
+    printf("Output of greens function: gf.vtk\n");
     
     if((fp = fopen("gf.vtk", "w")) == NULL) {
         fprintf(stderr, "ERROR: Could not open file\n");
@@ -137,7 +141,7 @@ int main(int argc, char** argv) {
     fclose(fp);
 #endif
                 
-    fprintf(stderr, "Copying greens function to device\n");
+    printf("Copying greens function to device\n");
     
     cudaMemcpy(greensfunc_dev, greensfunc_host, sizeof(cufftReal)*Nz*Ny*(Nx/2+1), cudaMemcpyHostToDevice);
     
@@ -147,17 +151,17 @@ int main(int argc, char** argv) {
     }
     
     /* charge density */
-    fprintf(stderr, "Writing charge density in host memory\n");
+    printf("Writing charge density in host memory\n");
     
     for(int z = 0; z < Nz; z++)
         for(int y = 0; y < Ny; y++)
             for(int x = 0; x < Nx; x++)
-                if(y == 0) //center sphere: (x-Nx/2)*(x-Nx/2) + (y-Ny/2)*(y-Ny/2) + (z-Nz/2)*(z-Nz/2) <= 5*5/(h*h) ||| 
+                if((x-Nx/2)*(x-Nx/2) + (y-Ny/2)*(y-Ny/2) + (z-Nz/2)*(z-Nz/2) <= 5*5/(h*h)) //homogeneously chargeed sphere of radius 5
                     data_real_host[Ny*Nx*z+Nx*y+x] = 1.0;
                 else
                     data_real_host[Ny*Nx*z+Nx*y+x] = 0.0;
                 
-    fprintf(stderr, "Copying charge density to device\n");
+    printf("Copying charge density to device\n");
     
     cudaMemcpy(data_dev, data_host, sizeof(cufftComplex)*Nz*Ny*(Nx/2+1), cudaMemcpyHostToDevice);
     
@@ -167,7 +171,7 @@ int main(int argc, char** argv) {
     }
     
 #if defined(OUTPUT) || defined(OUTPUT_CHARGE)
-    fprintf(stderr, "Output of charge density: charge.vtk\n");
+    printf("Output of charge density: charge.vtk\n");
     
     if((fp = fopen("charge.vtk", "w")) == NULL) {
         fprintf(stderr, "ERROR: Could not open file\n");
@@ -188,9 +192,16 @@ int main(int argc, char** argv) {
 #endif
 
     /* create 3D FFT plans */
-    fprintf(stderr, "Setting up FFT and iFFT plans\n");
-        
-    if(cufftPlan3d(&plan_fft, Nx, Ny, Nz, CUFFT_R2C) != CUFFT_SUCCESS) {
+    printf("Setting up FFT and iFFT plans\n");
+    
+    /* Notice how the directions x and z are exchanged. This is because for R2C
+       transforms, cuda only stores half the results in the 3rd direction. At
+       the same time cuda expects the fastest running index to be the one with
+       only half the values stored, which effectively forces one to make the 3rd
+       index (usually z) the fastest running one. I find this rather uncommon
+       and want x to be the festest running index and z the slowest running, so
+       I chose to exchange the two in the fourier transforms. */
+    if(cufftPlan3d(&plan_fft, Nz, Ny, Nx, CUFFT_R2C) != CUFFT_SUCCESS) {
         fprintf(stderr, "ERROR: Unable to create fft plan\n");
         return 1;
     }
@@ -200,7 +211,7 @@ int main(int argc, char** argv) {
         return 1;
     }
         
-    if(cufftPlan3d(&plan_ifft, Nx, Ny, Nz, CUFFT_C2R) != CUFFT_SUCCESS) {
+    if(cufftPlan3d(&plan_ifft, Nz, Ny, Nx, CUFFT_C2R) != CUFFT_SUCCESS) {
         fprintf(stderr, "ERROR: Unable to create ifft plan\n");
         return 1;
     }
@@ -211,7 +222,7 @@ int main(int argc, char** argv) {
     }
     
     /* FFT in place */
-    fprintf(stderr, "executing FFT in place\n");
+    printf("Executing FFT in place\n");
     
     cudaEventRecord(start, 0);
     
@@ -223,7 +234,7 @@ int main(int argc, char** argv) {
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&time_tmp, start, stop);
-    printf("execution time: %f ms\n", time_tmp);
+    printf("Execution time: %f ms\n", time_tmp);
     time += time_tmp;
     
     if(cudaThreadSynchronize() != cudaSuccess) {
@@ -233,12 +244,12 @@ int main(int argc, char** argv) {
     
 #if defined(OUTPUT) || defined(OUTPUT_CHARGE_FFT)
     /* retrieving result from device */
-    fprintf(stderr, "Retrieving result from device\n");
+    printf("Retrieving result from device\n");
     
     cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*Nz*Ny*(Nx/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
-    fprintf(stderr, "Output of FFT(charge_density): charge_fft.vtk\n");
+    printf("Output of FFT(charge_density): charge_fft.vtk\n");
     
     if((fp = fopen("charge_fft.vtk", "w")) == NULL) {
         fprintf(stderr, "ERROR: Could not open file\n");
@@ -262,7 +273,7 @@ int main(int argc, char** argv) {
 #endif
     
     /* multiplying with greens function */
-    fprintf(stderr, "Executing multiplication with greens function in place\n");
+    printf("Executing multiplication with greens function in place\n");
     
     cudaEventRecord(start, 0);
     
@@ -271,7 +282,7 @@ int main(int argc, char** argv) {
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&time_tmp, start, stop);
-    printf("execution time: %f ms\n", time_tmp);
+    printf("Execution time: %f ms\n", time_tmp);
     time += time_tmp;
     
     if(cudaThreadSynchronize() != cudaSuccess) {
@@ -281,12 +292,12 @@ int main(int argc, char** argv) {
     
 #if defined(OUTPUT) || defined(OUTPUT_CHARGE_FFT_GF)
     /* retrieving result from device */
-    fprintf(stderr, "Retrieving result from device\n");
+    printf("Retrieving result from device\n");
     
     cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*Nz*Ny*(Nx/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
-    fprintf(stderr, "Output of FFT(charge_density)*greensfkt: charge_fft_gf.vtk\n");
+    printf("Output of FFT(charge_density)*greensfunc: charge_fft_gf.vtk\n");
     
     if((fp = fopen("charge_fft_gf.vtk", "w")) == NULL) {
         fprintf(stderr, "ERROR: Could not open output file\n");
@@ -310,7 +321,7 @@ int main(int argc, char** argv) {
 #endif
     
     /* inverse FFT in place */
-    fprintf(stderr, "executing iFFT in place\n");
+    printf("Executing iFFT in place\n");
     
     cudaEventRecord(start, 0);
     
@@ -322,7 +333,7 @@ int main(int argc, char** argv) {
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&time_tmp, start, stop);
-    printf("execution time: %f ms\n", time_tmp);
+    printf("Execution time: %f ms\n", time_tmp);
     time += time_tmp;
     
     if(cudaThreadSynchronize() != cudaSuccess) {
@@ -332,11 +343,11 @@ int main(int argc, char** argv) {
     
 #if defined(OUTPUT) || defined(OUTPUT_POTENTIAL)
     /* retrieving result from device */
-    fprintf(stderr, "Retrieving result from device\n");
+    printf("Retrieving result from device\n");
     cudaMemcpy(data_host, data_dev, sizeof(cufftComplex)*Nz*Ny*(Nx/2+1), cudaMemcpyDeviceToHost);
     
     /* output result */
-    fprintf(stderr, "Output of iFFT(FFT(charge_density)*greensftk): charge_fft_gf_ifft.vtk\n");
+    printf("Output of iFFT(FFT(charge_density)*greensfunc): charge_fft_gf_ifft.vtk\n");
     
     if((fp = fopen("charge_fft_gf_ifft.vtk", "w")) == NULL) {
         fprintf(stderr, "ERROR: Could not open output file\n");
@@ -357,7 +368,7 @@ int main(int argc, char** argv) {
 #endif
 
     /* cleanup */
-    fprintf(stderr, "Cleanup\n");
+    printf("Cleanup\n");
     
     cufftDestroy(plan_fft);
     cufftDestroy(plan_ifft);
@@ -370,7 +381,7 @@ int main(int argc, char** argv) {
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
     
-    printf("net device execution time: %f ms\n", time);
+    printf("Net device execution time: %f ms\n", time);
     
     return 0;
 }

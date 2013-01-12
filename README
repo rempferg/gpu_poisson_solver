@@ -12,6 +12,9 @@ combination of the precompiler constants
     OUTPUT_CHARGE_FFT_GF
     OUTPUT_POTENTIAL
 
+There also is a stripped down version gpu_poisson_solver_barebone.cu, which
+contains only the absolutely necessary code for easier understanding.
+
 
 Scaling:
 
@@ -19,12 +22,7 @@ Scaling:
     calculations on many grid sizes and produces a plot 'scaling.pdf' of the 
     calculation times using Gnuplot. The plot shows that the effort delicately 
     depends on the grid size. The FFTs are most efficient if the side length can
-    be decomposed into prime factors 2, 3, 5 and 7 which gives rise to the odd 
-    scaling patterns. For example, in 2D a run on a grid with a 8192^2 grid 
-    takes less than 50 ms on a Tesla C2050 while a run on a 6669^2 grid takes 
-    over 420 ms on the same device.
-    
-
-Known issues:
-- grid has equal size in all directions
-- some grid sized cause a segfault in the output routines
+    be decomposed into prime factors 2, 3, 5 and 7, which gives rise to the odd 
+    scaling patterns. For example, a run on a 384^3 grid takes less than 50 ms
+    on a GeForce GTX 680 (384 = 2^7 * 3), while a run on a 373^3 grid takes over
+    530 ms on the same device (373 is prime).
