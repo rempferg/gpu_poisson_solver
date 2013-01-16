@@ -2,6 +2,8 @@
 #include <math.h>
 #include <cufft.h>
 
+#define PI_FLOAT 3.14159265358979323846264338327f
+
 #define OUTPUT
 //#define OUTPUT_GF
 //#define OUTPUT_CHARGE
@@ -11,7 +13,28 @@
 
 void displayDeviceProperties(cudaDeviceProp* pDeviceProp);
 
-__global__ void multiplyGreensFunc(cufftComplex* data, cufftReal* greensfunc, int N) {
+__global__ void createGreensFunc(cufftReal* greensfunc, unsigned int Nx, unsigned int Ny, unsigned int Nz, float h) {
+    unsigned int tmp;
+    unsigned int coord[3];
+    
+    for(int i = blockDim.x*blockIdx.x+threadIdx.x; i < Nz * Ny * (Nx/2+1); i += gridDim.x*blockDim.x) {
+        coord[0] = i % (Nx/2+1);
+        tmp = i / (Nx/2+1);
+        coord[1] = tmp % Ny;
+        coord[2] = tmp / Ny;
+        
+        /* Setting 0th fourier mode to 0.0 enforces charge neutrality (effectively
+           adds homogeneous counter charge). This is necessary, since the equation
+           otherwise has no solution in periodic boundaries (an infinite amount of
+           charge would create an infinite potential). */
+        if(i == 0)
+            greensfunc[i] = 0.0f;
+        else
+            greensfunc[i] = -0.5f * h * h / (cos(2.0f*PI_FLOAT*coord[0]/(cufftReal)Nx) + cos(2.0f*PI_FLOAT*coord[1]/(cufftReal)Ny) + cos(2.0f*PI_FLOAT*coord[2]/(cufftReal)Nz) - 3.0f);
+    }
+}
+
+__global__ void multiplyGreensFunc(cufftComplex* data, cufftReal* greensfunc, unsigned int N) {
     for(int i = blockDim.x*blockIdx.x+threadIdx.x; i < N; i += gridDim.x*blockDim.x) {
         data[i].x *= greensfunc[i];
         data[i].y *= greensfunc[i];
@@ -45,9 +68,9 @@ int main(int argc, char** argv) {
         return 0;
     }
     
-    int Nx = atoi(argv[1]);
-    int Ny = atoi(argv[2]);
-    int Nz = atoi(argv[3]);
+    unsigned int Nx = atoi(argv[1]);
+    unsigned int Ny = atoi(argv[2]);
+    unsigned int Nz = atoi(argv[3]);
     float h = atof(argv[4]);
     
     printf("Calculating electrostatic potential on a %d*%d*%d grid with spacing %f\n", Nx, Ny, Nz, h);
@@ -67,9 +90,9 @@ int main(int argc, char** argv) {
     cufftHandle plan_fft;
     cufftHandle plan_ifft;
     cufftComplex* data_dev;
-    cufftReal* greensfunc_dev;
     cufftComplex* data_host;
     cufftReal* data_real_host;
+    cufftReal* greensfunc_dev;
     cufftReal* greensfunc_host;
     
     cudaMalloc((void**) &data_dev, sizeof(cufftComplex)*Nz*Ny*(Nx/2+1));
@@ -103,22 +126,14 @@ int main(int argc, char** argv) {
     }
     
     /* greens function */
-    printf("Creating k-space greens function in host memory\n");
+    printf("Creating greens function in device memory\n");
     
-    /* Setting 0th fourier mode to 0.0 enforces charge neutrality (effectively
-       adds homogeneous counter charge). This is necessary, since the equation
-       otherwise has no solution in periodic boundaries (an infinite amount of
-       charge would create an infinite potential). */
-    for(int z = 0; z < Nz; z++)
-        for(int y = 0; y < Ny; y++)
-            for(int x = 0; x < Nx/2+1; x++)
-                if(x == 0 && y == 0 && z == 0)
-                    greensfunc_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x] = 0.0;
-                else
-                    greensfunc_host[Ny*(Nx/2+1)*z+(Nx/2+1)*y+x] = -0.5 * h * h / (cos(2.0*M_PI*x/(cufftReal)Nx) + cos(2.0*M_PI*y/(cufftReal)Ny) + cos(2.0*M_PI*z/(cufftReal)Nz) - 3.0);
+    createGreensFunc<<<14,32*32>>>(greensfunc_dev, Nx, Ny, Nz, h);
     
 #if defined(OUTPUT) || defined(OUTPUT_GF)
     printf("Output of greens function: gf.vtk\n");
+    
+    cudaMemcpy(greensfunc_host, greensfunc_dev, sizeof(cufftReal)*Nz*Ny*(Nx/2+1), cudaMemcpyDeviceToHost);
     
     if((fp = fopen("gf.vtk", "w")) == NULL) {
         fprintf(stderr, "ERROR: Could not open file\n");
@@ -140,15 +155,6 @@ int main(int argc, char** argv) {
 
     fclose(fp);
 #endif
-                
-    printf("Copying greens function to device\n");
-    
-    cudaMemcpy(greensfunc_dev, greensfunc_host, sizeof(cufftReal)*Nz*Ny*(Nx/2+1), cudaMemcpyHostToDevice);
-    
-    if(cudaGetLastError() != cudaSuccess) {
-        fprintf(stderr, "ERROR: Failed to copy\n");
-        return 1;
-    }
     
     /* charge density */
     printf("Writing charge density in host memory\n");
