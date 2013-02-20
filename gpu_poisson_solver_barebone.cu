@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
         for(int y = 0; y < Ny; y++)
             for(int x = 0; x < Nx; x++)
                 if((x-Nx/2)*(x-Nx/2) + (y-Ny/2)*(y-Ny/2) + (z-Nz/2)*(z-Nz/2) <= 5*5/(h*h))
-                    data_real_host[Ny*Nx*z+Nx*y+x] = 1.0f;
+                    data_real_host[Ny*Nx*z+Nx*y+x] = h*h*h;
                 else
                     data_real_host[Ny*Nx*z+Nx*y+x] = 0.0f;
     
