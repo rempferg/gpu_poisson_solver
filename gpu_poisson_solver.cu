@@ -4,7 +4,7 @@
 
 #define PI_FLOAT 3.14159265358979323846264338327f
 
-#define OUTPUT
+//#define OUTPUT
 //#define OUTPUT_GF
 //#define OUTPUT_CHARGE
 //#define OUTPUT_CHARGE_FFT
